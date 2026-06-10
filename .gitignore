@@ -1,0 +1,5 @@
+#IGNORAR AMBIENTE VIRTUAL
+/venv
+
+#IGNORAR GRABACIONES
+/grabaciones
