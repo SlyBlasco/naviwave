@@ -23,8 +23,9 @@ from datetime import datetime
 
 # --- PARÁMETROS ---
 #156_800_000 es la frecuencia del puerto.
-FRECUENCIA_CENTRAL = 156_800_000 
-SAMPLE_RATE = 256_000 
+FRECUENCIA_CENTRAL = 156_800_000
+FRECUENCIA_AIS = 162_025_000
+SAMPLE_RATE = 256_000
 GANANCIA = 15 # El valor que hace que entre el audio sin ruido electromagnético.             
 AUDIO_RATE = 48_000
 
@@ -133,72 +134,117 @@ def main():
         sdr.sample_rate = SAMPLE_RATE
         sdr.center_freq = FRECUENCIA_CENTRAL
         sdr.gain = GANANCIA
-        
+
         proc = ProcesadorNaviWave(SAMPLE_RATE, AUDIO_RATE)
-        squelch = SquelchAdaptativo(margen_db=3.5)
+        squelch = SquelchAdaptativo(margen_db=6)
         grabador = GrabadorFondo(AUDIO_RATE)
         
         # Variables para controlar la grabación y el "Squelch Tail"
         grabando = False
         bloques_silencio = 0
         BLOQUES_PARA_CORTAR = 15 # Aprox 1 segundo de delay antes de cortar el archivo
-        
+        bloques_silencio_total = 0
+        BLOQUES_PARA_CAMBIAR_AIS = 150
+
         bloques_arranque = 0
         BLOQUES_ARRANQUE = 20 # Ignorar los primeros bloques para estabilizar el squelch
 
+        bloques_voz = 0
+        BLOQUES_PARA_CAMBIAR_VOZ = 50
+
+        #Variables para controlar el estado 
+        ESTADO_ACTUAL = "VOZ"
+
+        #MAQUINA ESTADOS
+        #ESTADO MONITOREO VOZ
         with sd.OutputStream(samplerate=AUDIO_RATE, channels=1, dtype='float32') as stream:
             while True:
-                try:
-                    raw_samples = sdr.read_samples(16384)
-                except Exception as e:
-                    if 'LIBUSB_ERROR' in str(e) or "PIPE" in str(e).upper():
-                        print("\n[⚠️ WARNING] Desconexión temporal del USB. Intentando reconectar...")
-                        sdr.close()
-                        time.sleep(2)
-                        sdr = RtlSdr()
-                        sdr.sample_rate = SAMPLE_RATE
-                        sdr.center_freq = FRECUENCIA_CENTRAL
-                        sdr.gain = GANANCIA
-                        continue
-                    else:
-                        raise e
+                while ESTADO_ACTUAL == "VOZ":
+                    try:
+                        raw_samples = sdr.read_samples(16384)
+                    except Exception as e:
+                        if 'LIBUSB_ERROR' in str(e) or "PIPE" in str(e).upper():
+                            print("\n[⚠️ WARNING] Desconexión temporal del USB. Intentando reconectar...")
+                            sdr.close()
+                            time.sleep(2)
+                            sdr = RtlSdr()
+                            sdr.sample_rate = SAMPLE_RATE
+                            sdr.center_freq = FRECUENCIA_CENTRAL
+                            sdr.gain = GANANCIA
+                            continue
+                        else:
+                            raise e
 
-                pwr = 10 * np.log10(np.mean(np.abs(raw_samples)**2) + 1e-12)
-                
-                activa, piso, umbral = squelch.evaluar(pwr)
-                if bloques_arranque < BLOQUES_ARRANQUE:
-                    bloques_arranque += 1
-                    activa = False  # Forzamos silencio durante el arranque
-                
-                # MÁQUINA DE ESTADOS DE GRABACIÓN
-                if activa:
-                    bloques_silencio = 0 # Reiniciamos el contador de silencio
-                    if not grabando:
-                        grabador.iniciar(FRECUENCIA_CENTRAL)
-                        grabando = True
-                        
-                    audio_output = proc.procesar(raw_samples)
-                    stream.write(audio_output.reshape(-1, 1))
-                    grabador.grabar(audio_output)
-                    print(f"\r[VOZ 🟢] Pwr: {pwr:>6.1f} | Piso: {piso:>6.1f} | Umbral: {umbral:>6.1f}  ", end="")
+                    pwr = float(10 * np.log10(np.mean(np.abs(raw_samples)**2) + 1e-12))
                     
-                else:
-                    if grabando:
-                        # Si estábamos grabando, le damos un tiempo de gracia ("Squelch Tail")
-                        bloques_silencio += 1
+                    activa, piso, umbral = squelch.evaluar(pwr)
+                    
+                    if bloques_arranque < BLOQUES_ARRANQUE:
+                        bloques_arranque += 1
+                        activa = False  # Forzamos silencio durante el arranque
+                    
+                    # MÁQUINA DE ESTADOS DE GRABACIÓN
+                    if activa:
+                        bloques_silencio = 0 # Reiniciamos el contador de silencio
+                        if not grabando:
+                            grabador.iniciar(FRECUENCIA_CENTRAL)
+                            grabando = True
+                            
                         audio_output = proc.procesar(raw_samples)
                         stream.write(audio_output.reshape(-1, 1))
-                        #grabador.grabar(audio_output)
-                        print(f"\r[TAIL 🟡] Esperando... {bloques_silencio}/{BLOQUES_PARA_CORTAR}        ", end="")
-                        
-                        if bloques_silencio >= BLOQUES_PARA_CORTAR:
-                            grabador.detener()
-                            grabando = False
+                        grabador.grabar(audio_output)
+                        print(f"\r[VOZ 🟢] Pwr: {pwr:>6.1f} | Piso: {piso:>6.1f} | Umbral: {umbral:>6.1f}  ", end="") 
                     else:
-                        # Silencio total
-                        stream.write(np.zeros((3072, 1), dtype='float32'))
-                        print(f"\r[--- ⚪] Pwr: {pwr:>6.1f} | Piso: {piso:>6.1f} | Umbral: {umbral:>6.1f}  ", end="")
-                    
+                        if grabando:
+                            # Si estábamos grabando, le damos un tiempo de gracia ("Squelch Tail")
+                            bloques_silencio += 1
+                            audio_output = proc.procesar(raw_samples)
+                            stream.write(audio_output.reshape(-1, 1))
+                            #grabador.grabar(audio_output)
+                            print(f"\r[TAIL 🟡] Esperando... {bloques_silencio}/{BLOQUES_PARA_CORTAR}        ", end="")
+                            
+                            if bloques_silencio >= BLOQUES_PARA_CORTAR:
+                                grabador.detener()
+                                grabando = False
+                        else:
+                            # Silencio total
+                            stream.write(np.zeros((3072, 1), dtype='float32'))
+                            bloques_silencio_total += 1
+                            print(f"\r[--- ⚪] Pwr: {pwr:>6.1f} | Piso: {piso:>6.1f} | Umbral: {umbral:>6.1f}  ", end="")
+
+                    if bloques_silencio_total >= BLOQUES_PARA_CAMBIAR_AIS and not activa:
+                        ESTADO_ACTUAL = "SALTANDO_AIS"
+                        break
+
+                #ESTADO SALTANDO A AIS
+                if ESTADO_ACTUAL == "SALTANDO_AIS":
+                    sdr.center_freq = FRECUENCIA_AIS
+                    for _ in range(3):
+                        sdr.read_samples(16384)
+                    ESTADO_ACTUAL = "AIS"
+                    print("\n[⚠️ WARNING] Cambio hacia frecuencia AIS")
+
+                #ESTADO CAPTURA AIS    
+                while ESTADO_ACTUAL == "AIS":
+                    stream.write(np.zeros((3072, 1), dtype='float32'))
+
+                    raw_samples = sdr.read_samples(16384)
+
+                    bloques_voz += 1
+                    if bloques_voz >= BLOQUES_PARA_CAMBIAR_VOZ:
+                        ESTADO_ACTUAL = "VOZ"
+                        break
+
+                #BLOQUE PARA REINCIAR BLOQUES
+                bloques_arraque = 0
+                bloques_voz = 0
+                bloques_silencio = 0
+                bloques_silencio_total = 0
+                sdr.center_freq = FRECUENCIA_CENTRAL
+
+
+
+
     except KeyboardInterrupt:
         print("\n\n[INFO] Detenido por el usuario.")
         if 'grabador' in locals() and grabando:
