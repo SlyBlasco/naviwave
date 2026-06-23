@@ -20,6 +20,8 @@ import threading
 import queue
 import time
 from datetime import datetime
+from pyais import decode
+from pyais.util import SixBitNibleEncoder
 
 # --- PARÁMETROS ---
 #156_800_000 es la frecuencia del puerto.
@@ -125,6 +127,157 @@ class ProcesadorNaviWave:
             audio_final /= limite
         return audio_final.astype(np.float32) * 0.4
 
+class ProcesadorAIS:
+    def __init__(self, sr, audio_sr):
+        self.sr = sr
+        self.audio_sr = audio_sr
+        self.b_chan, self.a_chan = signal.butter(4, 12500/(sr/2), btype='low')
+        self.zi_chan = signal.lfilter_zi(self.b_chan, self.a_chan)\
+        
+        self.ultimo_bit_nrzi = 0
+        self.contador_unos = 0
+
+        self.fase_reloj = 2.5  # Empezamos a la mitad del bit (el centro ideal)
+        self.ultima_muestra_audio = 0.0 # Para detectar el cruce por cero entre bloques
+
+        self.bit_buffer = []
+
+    def procesar(self, muestras):
+        # 1. Demodulación FM y Filtro
+        muestras -= np.mean(muestras)
+        muestras, self.zi_chan = signal.lfilter(self.b_chan, self.a_chan, muestras, zi=self.zi_chan)
+        audio = np.angle(muestras[1:] * np.conj(muestras[:-1]))
+        audio_resampled = signal.resample_poly(audio, self.audio_sr, self.sr)
+        
+        # 2. CLOCK RECOVERY (Metrónomo Inteligente) Y DECO NRZI Inmediato
+        lista_nrzi = []
+        muestras_por_bit = 5.0
+        
+        for muestra_actual in audio_resampled:
+            # Detectar la frontera física entre bits (cruce por cero)
+            cruce_por_cero = (self.ultima_muestra_audio < 0 and muestra_actual >= 0) or \
+                             (self.ultima_muestra_audio >= 0 and muestra_actual < 0)
+            
+            if cruce_por_cero:
+                error_fase = self.fase_reloj - (muestras_por_bit / 2.0)
+                self.fase_reloj -= error_fase * 0.25 # Ajuste PLL
+            
+            self.fase_reloj -= 1.0
+            
+            if self.fase_reloj <= 0:
+                # Extraemos el dato bruto
+                bit_bruto = 1 if muestra_actual >= 0 else 0
+                # Deshacemos el NRZI en tiempo real comparando con el bit pasado
+                bit_nrzi = 1 if bit_bruto == self.ultimo_bit_nrzi else 0
+                self.ultimo_bit_nrzi = bit_bruto
+                
+                lista_nrzi.append(bit_nrzi)
+                self.fase_reloj += muestras_por_bit
+            
+            self.ultima_muestra_audio = muestra_actual
+
+        # 3. Guardar en el buffer continuo
+        self.bit_buffer.extend(lista_nrzi)
+        
+        # Prevenir desbordamiento de RAM por ruido infinito
+        if len(self.bit_buffer) > 4000:
+            self.bit_buffer = self.bit_buffer[-4000:]
+            
+        # 4. Extraer mensajes completos (Protocolo HDLC)
+        return self.extraer_mensajes()
+
+    def extraer_mensajes(self):
+        mensajes_encontrados = []
+        bandera = [0, 1, 1, 1, 1, 1, 1, 0] # 0x7E - HDLC Flag
+        
+        while True:
+            # 1. Encontrar la bandera de INICIO
+            inicio = -1
+            for i in range(len(self.bit_buffer) - 7):
+                if self.bit_buffer[i:i+8] == bandera:
+                    inicio = i + 8
+                    break
+            
+            if inicio == -1:
+                break # No hay inicio, esperamos más datos del SDR
+                
+            # 2. Encontrar la bandera de FIN
+            fin = -1
+            for i in range(inicio, len(self.bit_buffer) - 7):
+                if self.bit_buffer[i:i+8] == bandera:
+                    fin = i
+                    break
+            
+            if fin == -1:
+                # El mensaje empezó pero se cortó el bloque. Lo guardamos para la otra vuelta.
+                self.bit_buffer = self.bit_buffer[inicio-8:]
+                break
+                
+            # 3. Extraer solo el PAYLOAD
+            payload_crudo = self.bit_buffer[inicio:fin]
+            
+            # 4. BIT STUFFING (Desescombro) - Se aplica SOLO dentro del Payload
+            payload_limpio = []
+            contador_unos = 0
+            ignorar_siguiente = False
+            
+            for dato in payload_crudo:
+                if ignorar_siguiente:
+                    ignorar_siguiente = False
+                    continue
+                    
+                if dato == 1:
+                    payload_limpio.append(1)
+                    contador_unos += 1
+                    if contador_unos == 5:
+                        ignorar_siguiente = True # El siguiente 0 fue insertado por el barco, se ignora
+                        contador_unos = 0
+                else:
+                    payload_limpio.append(0)
+                    contador_unos = 0
+            
+            # 5. Convertir a NMEA Nativos
+            nmea = self.decodificar_a_nmea(payload_limpio)
+            if nmea:
+                mensajes_encontrados.append(nmea)
+            
+            # Recortamos el buffer y seguimos buscando más mensajes
+            self.bit_buffer = self.bit_buffer[fin:]
+            
+        return mensajes_encontrados
+
+    def decodificar_a_nmea(self, payload_bits):
+        total_bits = len(payload_bits)
+        # Un mensaje AIS estándar no puede tener menos de 30 bits, si los tiene, era ruido
+        if total_bits < 30:
+            return None
+
+        bytes_array = bytearray()
+        for i in range(0, total_bits, 8):
+            bloque_8 = payload_bits[i:i+8]
+            str_binario = "".join(str(b) for b in bloque_8)
+            str_binario = str_binario.ljust(8, '0')
+            bytes_array.append(int(str_binario, 2))
+        
+        datos_binarios = bytes(bytes_array)
+
+        encoder = SixBitNibleEncoder()
+        payload_ascii, fill_bits = encoder.encode(datos_binarios, total_bits)
+
+        cuerpo = f"AIVDM,1,1,,B,{payload_ascii},{fill_bits}"
+
+        checksum = 0
+        for caracter in cuerpo:
+            checksum ^= ord(caracter)
+        checksum_hex = f"{checksum:02X}"
+
+        return f"!{cuerpo}*{checksum_hex}".encode('ascii')
+
+
+
+
+
+
 
 def main():
     print(f"--- NaviWave Corriendo en {FRECUENCIA_CENTRAL/1e6} MHz ---")
@@ -138,6 +291,7 @@ def main():
         proc = ProcesadorNaviWave(SAMPLE_RATE, AUDIO_RATE)
         squelch = SquelchAdaptativo(margen_db=6)
         grabador = GrabadorFondo(AUDIO_RATE)
+        proc_ais = ProcesadorAIS(SAMPLE_RATE, AUDIO_RATE)
         
         # Variables para controlar la grabación y el "Squelch Tail"
         grabando = False
@@ -219,16 +373,42 @@ def main():
                 #ESTADO SALTANDO A AIS
                 if ESTADO_ACTUAL == "SALTANDO_AIS":
                     sdr.center_freq = FRECUENCIA_AIS
+                    sdr.gain = 'auto'
                     for _ in range(3):
                         sdr.read_samples(16384)
                     ESTADO_ACTUAL = "AIS"
-                    print("\n[⚠️ WARNING] Cambio hacia frecuencia AIS")
+                    print("\n[🔁 CAMBIO] Cambio hacia frecuencia AIS")
 
                 #ESTADO CAPTURA AIS    
                 while ESTADO_ACTUAL == "AIS":
                     stream.write(np.zeros((3072, 1), dtype='float32'))
-
                     raw_samples = sdr.read_samples(16384)
+                    
+                    lista_mensajes = proc_ais.procesar(raw_samples)
+                    
+                    for mensaje in lista_mensajes:
+                        try:
+                            barco = decode(mensaje)
+                            mmsi_str = str(barco.mmsi)
+                            
+                            if len(mmsi_str) == 9:
+                                if mmsi_str[0] in ['2', '3', '7']:
+                                    
+                                    if hasattr(barco, 'lat') and hasattr(barco, 'lon') and barco.lat is not None:
+                                        lat = barco.lat
+                                        lon = barco.lon
+                                        
+                                        if (26.0 <= lat <= 30.0) and (-112.0 <= lon <= -108.0):
+                                            print(f"\n[🚢 BARCO REAL] MMSI: {barco.mmsi} | Lat: {lat:.5f}, Lon: {lon:.5f}")
+                                            
+                                    elif hasattr(barco, 'shipname') and barco.shipname:
+                                        nombre = barco.shipname.strip()
+                                        if len(nombre) > 2 and bool(re.match(r'^[A-Z0-9\s]+$', nombre)):
+                                            print(f"\n[📋 INFO BARCO] MMSI: {barco.mmsi} | Nombre: {nombre}")
+
+                        except Exception:
+                            pass
+
 
                     bloques_voz += 1
                     if bloques_voz >= BLOQUES_PARA_CAMBIAR_VOZ:
@@ -236,11 +416,12 @@ def main():
                         break
 
                 #BLOQUE PARA REINCIAR BLOQUES
-                bloques_arraque = 0
+                bloques_arranque = 0
                 bloques_voz = 0
                 bloques_silencio = 0
                 bloques_silencio_total = 0
                 sdr.center_freq = FRECUENCIA_CENTRAL
+                sdr.gain = GANANCIA
 
 
 
