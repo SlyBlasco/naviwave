@@ -13,12 +13,14 @@ if sys.platform == 'win32':
 
 import numpy as np
 from scipy import signal
-from rtlsdr import RtlSdr
+from rtlsdr import RtlSdr, RtlSdrTcpClient
 import sounddevice as sd
 import soundfile as sf
 import threading
 import queue
 import time
+import socket
+import struct
 from datetime import datetime
 from pyais import decode
 from pyais.util import SixBitNibleEncoder
@@ -28,14 +30,80 @@ from db_manager import GestorBaseDatos
 FRECUENCIA_CENTRAL  = 156_800_000
 FRECUENCIA_AIS      = 162_025_000
 SAMPLE_RATE         = 256_000
-GANANCIA            = 15
+GANANCIA            = 12
 AUDIO_RATE          = 48_000
+
+# PARAMETROS TCP
+RTL_TCP_HOST        = '192.168.1.72'
+RTL_TCP_PORT        = 1234
 
 # Tasa interna para AIS: 8 muestras exactas por bit a 9600 baud
 # resample_poly(x, 3, 10): 256000 * 3/10 = 76800
 AIS_FS  = 76_800
 AIS_SPS = 8          # muestras por símbolo = 76800/9600
 
+class ClienteRtlTcpPuro:
+    """Cliente ultra rápido de Sockets para el rtl_tcp original en C"""
+    def __init__(self, host, port=1234):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, port))
+        
+        # Leer el header de bienvenida de rtl_tcp (12 bytes 'RTL0')
+        header = self.sock.recv(12)
+        if not header.startswith(b'RTL0'):
+            raise ValueError("No se detectó un servidor rtl_tcp válido")
+
+    def _enviar_comando(self, cmd, arg):
+        # Envía el comando en formato binario (Big-Endian)
+        self.sock.sendall(struct.pack('>BI', cmd, int(arg)))
+
+    @property
+    def center_freq(self): return 0
+    @center_freq.setter
+    def center_freq(self, freq):
+        self._enviar_comando(0x01, int(freq))
+
+    @property
+    def sample_rate(self): return 0
+    @sample_rate.setter
+    def sample_rate(self, rate):
+        self._enviar_comando(0x02, int(rate))
+
+    @property
+    def gain(self): return 0
+    @gain.setter
+    def gain(self, gain_val):
+        if gain_val == 'auto':
+            # 0x03 = Modo de Ganancia del Sintonizador (0 = Auto)
+            self._enviar_comando(0x03, 0) 
+            # 0x08 = AGC Interno del chip RTL2832U (1 = Encendido, maximiza la captura AIS)
+            self._enviar_comando(0x08, 1) 
+        else:
+            # 0x03 = Modo de Ganancia del Sintonizador (1 = Manual)
+            self._enviar_comando(0x03, 1) 
+            # 0x08 = AGC Interno (0 = Apagado, vital para que la Voz no se sature)
+            self._enviar_comando(0x08, 0) 
+            # 0x04 = Establecer Ganancia (rtl_tcp espera el valor en décimas de dB, ej: 15.0 -> 150)
+            self._enviar_comando(0x04, int(gain_val * 10))
+
+    def read_samples(self, num_samples):
+        # Leer bytes binarios puros (ultra rápido)
+        bytes_esperados = num_samples * 2
+        data = bytearray()
+        
+        while len(data) < bytes_esperados:
+            chunk = self.sock.recv(bytes_esperados - len(data))
+            if not chunk:
+                raise ConnectionError("El servidor cerró la conexión")
+            data.extend(chunk)
+            
+        # Transformación matemática a complejos
+        iq = np.frombuffer(data, dtype=np.uint8).astype(np.float32)
+        iq = (iq - 127.5) / 128.0
+        return iq[0::2] + 1j * iq[1::2]
+
+    def close(self):
+        self.sock.close()
 
 class GrabadorFondo:
     def __init__(self, sample_rate):
@@ -83,33 +151,25 @@ class GrabadorFondo:
 
 
 class SquelchAdaptativo:
-    def __init__(self, margen_db, piso_inicial=-30.0):
-        self.piso_ruido  = piso_inicial
-        self.margen      = margen_db
-        self.alpha_bajada  = 0.01    # Baja lenta del piso (si baja el ruido)
-        self.alpha_subida  = 0.05    # Sube más rápido (si sube el ruido)
-        self.alpha_bloqueo = 0.15    # ← AUMENTADO: se adapta cuando hay "señal persistente"
-        self.contador_bloqueo = 0
+    def __init__(self, margen_db, piso_inicial=-45.0):
+        self.piso_ruido = piso_inicial
+        self.margen = margen_db
+        self.alpha_bajada = 0.1    
+        self.alpha_subida = 0.05   
+        self.alpha_bloqueo = 0.001 
 
     def evaluar(self, pwr_actual):
         umbral_disparo = self.piso_ruido + self.margen
-        senal_activa   = pwr_actual > umbral_disparo
-        
+        senal_activa = pwr_actual > umbral_disparo
+
         if not senal_activa:
-            # Sin señal: el piso baja si hay ruido bajo, o sube si hay ruido medio
             if pwr_actual < self.piso_ruido:
                 self.piso_ruido = (1 - self.alpha_bajada) * self.piso_ruido + self.alpha_bajada * pwr_actual
             else:
                 self.piso_ruido = (1 - self.alpha_subida) * self.piso_ruido + self.alpha_subida * pwr_actual
-            self.contador_bloqueo = 0
         else:
-            # Con "señal": detecta si es ruido persistente o voz real
-            # Si lleva muchos bloques seguidos con "señal", es probablemente ruido
-            self.contador_bloqueo += 1
-            if self.contador_bloqueo > 5:  # Tras 5 bloques seguidos de "señal"
-                # Asume que es ruido persistente: sube el piso
-                self.piso_ruido = (1 - self.alpha_bloqueo) * self.piso_ruido + self.alpha_bloqueo * pwr_actual
-        
+            self.piso_ruido = (1 - self.alpha_bloqueo) * self.piso_ruido + self.alpha_bloqueo * pwr_actual
+
         return senal_activa, self.piso_ruido, umbral_disparo
 
 
@@ -426,7 +486,7 @@ def main():
     print(f"--- NaviWave corriendo en {FRECUENCIA_CENTRAL/1e6} MHz ---")
     sdr = None
     try:
-        sdr = RtlSdr()
+        sdr = ClienteRtlTcpPuro(host=RTL_TCP_HOST, port=RTL_TCP_PORT)
         sdr.sample_rate = SAMPLE_RATE
         sdr.center_freq = FRECUENCIA_CENTRAL
         sdr.gain        = GANANCIA
@@ -438,9 +498,9 @@ def main():
 
         grabando             = False
         bloques_silencio     = 0
-        BLOQUES_PARA_CORTAR  = 15
+        BLOQUES_PARA_CORTAR  = 20
         bloques_silencio_total    = 0
-        BLOQUES_PARA_CAMBIAR_AIS  = 150
+        BLOQUES_PARA_CAMBIAR_AIS  = 175
 
         bloques_arranque  = 0
         BLOQUES_ARRANQUE  = 20
@@ -458,11 +518,18 @@ def main():
                     try:
                         raw_samples = sdr.read_samples(16384)
                     except Exception as e:
-                        if 'LIBUSB_ERROR' in str(e) or "PIPE" in str(e).upper():
-                            print("\n[⚠️ WARNING] Desconexión temporal del USB. Reconectando...")
-                            sdr.close()
+                        # 2. CAPTURAR ERRORES DE RED ADEMÁS DE USB
+                        err_str = str(e).upper()
+                        if 'LIBUSB_ERROR' in err_str or "PIPE" in err_str or "CONNECTION" in err_str or "SOCKET" in err_str:
+                            print(f"\n[⚠️ WARNING] Desconexión del servidor TCP. Reconectando... ({e})")
+                            try:
+                                sdr.close()
+                            except:
+                                pass # Ignorar errores al cerrar un socket ya roto
                             time.sleep(2)
-                            sdr = RtlSdr()
+                            
+                            # RECONECTAR TCP
+                            sdr = ClienteRtlTcpPuro(host=RTL_TCP_HOST, port=RTL_TCP_PORT)
                             sdr.sample_rate = SAMPLE_RATE
                             sdr.center_freq = FRECUENCIA_CENTRAL
                             sdr.gain        = GANANCIA
@@ -479,6 +546,7 @@ def main():
 
                     if activa:
                         bloques_silencio = 0
+                        bloques_silencio_total = 0
                         if not grabando:
                             grabador.iniciar(FRECUENCIA_CENTRAL)
                             grabando = True
@@ -536,7 +604,8 @@ def main():
                             name = getattr(barco, 'shipname', None)
                             sog  = getattr(barco, 'speed',    None)
 
-                            objBarco = {"mmsi": mmsi,
+                            objBarco = {"tipo": mtype,
+                                        "mmsi": mmsi,
                                         "nombre": name,
                                         "lat": lat,
                                         "lon": lon}
@@ -572,7 +641,7 @@ def main():
         if 'grabador' in locals() and grabando:
             grabador.detener()
     except Exception as e:
-        print(f"\n[ERROR] {e}")
+        print(f"\n[ERROR SDR] {e}")
     finally:
         if sdr:
             sdr.close()

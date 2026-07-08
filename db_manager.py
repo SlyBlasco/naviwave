@@ -20,6 +20,7 @@ class GestorBaseDatos:
                 cursor.execute("""
                         CREATE TABLE IF NOT EXISTS barcos (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            type INT,
                             mmsi TEXT,
                             nombre TEXT,
                             lat REAL,
@@ -81,19 +82,20 @@ class GestorBaseDatos:
         """Registra un barco con todas sus atributos"""
         # acepta barco como tupla/lista (mmsi, nombre, lat, lon) o dict con esas claves
         if isinstance(barco, dict):
+            tipo = barco.get('tipo')
             mmsi = barco.get('mmsi')
             nombre = barco.get('nombre')
             lat = barco.get('lat')
             lon = barco.get('lon')
         else:
-            mmsi, nombre, lat, lon = barco
+            tipo, mmsi, nombre, lat, lon = barco
 
         try:
             conn = sqlite3.connect('naviwave.db')
             cursor = conn.cursor()
 
-            cursor.execute('INSERT INTO barcos (mmsi, nombre, lat, lon) VALUES (?,?,?,?)',
-                           (mmsi, nombre, lat, lon))
+            cursor.execute('INSERT INTO barcos (tipo, mmsi, nombre, lat, lon) VALUES (?,?,?,?,?)',
+                           (tipo, mmsi, nombre, lat, lon))
             conn.commit()
         except sqlite3.Error as e:
             print(f"[SQL ERR] {e}")
@@ -120,5 +122,3 @@ class GestorBaseDatos:
             print(f"[SQL ERR] {e}")
             return None
         
-listarAudios = GestorBaseDatos().listarBarcos
-print(listarAudios())
