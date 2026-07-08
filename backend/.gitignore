@@ -1,0 +1,43 @@
+# Hard Artifacts and Build Folders
+target/
+build/
+out/
+.gradle/
+bin/
+
+# Packaged Applications
+*.jar
+*.war
+*.ear
+
+# Secrets and Local Configurations
+.env
+local.properties
+application-local.properties
+application-production.properties
+application.properties
+
+# Keystores & Certificates
+*.jks
+*.p12
+*.pem
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+
+# Eclipse / Spring Tool Suite (STS)
+.metadata/
+.classpath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+# VS Code
+.vscode/
+
+# Operating System Files
+.DS_Store
+Thumbs.db

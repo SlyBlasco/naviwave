@@ -3,3 +3,9 @@
 
 #IGNORAR GRABACIONES
 /grabaciones
+/grabacionesViejos
+
+#IGNORAR BASE DE DATOS
+/naviwave.db
+
+/__pycache__
