@@ -1,4 +1,6 @@
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 class GestorBaseDatos:
@@ -16,17 +18,18 @@ class GestorBaseDatos:
                             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP          
                         )               
                 """)
-
+                #cursor.execute("DROP TABLE IF EXISTS barcos")
                 cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS barcos (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            type INT,
-                            mmsi TEXT,
-                            nombre TEXT,
-                            lat REAL,
-                            lon REAL,
-                            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
+                    CREATE TABLE IF NOT EXISTS barcos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tipo INT,
+                        mmsi TEXT UNIQUE,
+                        nombre TEXT,
+                        lat REAL,
+                        lon REAL,
+                        fecha_creacion TIMESTAMP,
+                        fecha_actualizada TIMESTAMP
+                    )
                 """)
 
                 self.connection.commit()
@@ -79,8 +82,11 @@ class GestorBaseDatos:
     # ----- AIS / BARCOS ------
 
     def saveBarcos(self, barco):
-        """Registra un barco con todas sus atributos"""
-        # acepta barco como tupla/lista (mmsi, nombre, lat, lon) o dict con esas claves
+        """Registra un barco por primera vez o actualiza sus datos y su fecha de movimiento"""
+        
+        zona_sonora = ZoneInfo("America/Hermosillo")
+        hora_local = datetime.now(zona_sonora).strftime("%Y-%m-%d %H:%M:%S")
+
         if isinstance(barco, dict):
             tipo = barco.get('tipo')
             mmsi = barco.get('mmsi')
@@ -94,9 +100,30 @@ class GestorBaseDatos:
             conn = sqlite3.connect('naviwave.db')
             cursor = conn.cursor()
 
-            cursor.execute('INSERT INTO barcos (tipo, mmsi, nombre, lat, lon) VALUES (?,?,?,?,?)',
-                           (tipo, mmsi, nombre, lat, lon))
+            # Se busca si el barco ya fue registrado antes
+            cursor.execute("SELECT id FROM barcos WHERE mmsi = ?", (mmsi,))
+            registro_existente = cursor.fetchone()
+
+            if registro_existente:
+                # SI YA EXISTE: Se actualiza datos y SOLO la fecha_actualizada.
+                cursor.execute('''
+                    UPDATE barcos 
+                    SET tipo = ?, 
+                        nombre = COALESCE(?, nombre), 
+                        lat = COALESCE(?, lat), 
+                        lon = COALESCE(?, lon), 
+                        fecha_actualizada = ?
+                    WHERE mmsi = ?
+                ''', (tipo, nombre, lat, lon, hora_local, mmsi))
+            else:
+                # SI ES NUEVO: Se inserta la fila y se asigna la misma hora a ambos campos
+                cursor.execute('''
+                    INSERT INTO barcos (tipo, mmsi, nombre, lat, lon, fecha_creacion, fecha_actualizada) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (tipo, mmsi, nombre, lat, lon, hora_local, hora_local))
+
             conn.commit()
+            
         except sqlite3.Error as e:
             print(f"[SQL ERR] {e}")
         finally:
@@ -121,4 +148,21 @@ class GestorBaseDatos:
         except sqlite3.Error as e:
             print(f"[SQL ERR] {e}")
             return None
+        
+    def eliminarBarcos(self):
+        try:
+            conn = sqlite3.connect('naviwave.db')
+            cursor = conn.cursor()
+
+            # Elimina todos los registros
+            cursor.execute('DELETE FROM barcos;')
+            
+            # Reinicia el contador de autoincremento (opcional)
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='barcos';")
+
+            conn.commit()
+
+            conn.close()
+        except sqlite3.Error as e:
+            print(f"[SQL ERROR] {e}")
         

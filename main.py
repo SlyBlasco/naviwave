@@ -43,7 +43,7 @@ AIS_FS  = 76_800
 AIS_SPS = 8          # muestras por símbolo = 76800/9600
 
 class ClienteRtlTcpPuro:
-    """Cliente ultra rápido de Sockets para el rtl_tcp original en C"""
+    """Cliente ultra rápido de Sockets para el rtl_tcp"""
     def __init__(self, host, port=1234):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((host, port))
@@ -155,7 +155,7 @@ class SquelchAdaptativo:
         self.piso_ruido = piso_inicial
         self.margen = margen_db
         self.alpha_bajada = 0.1    
-        self.alpha_subida = 0.05   
+        self.alpha_subida = 0.01   
         self.alpha_bloqueo = 0.001 
 
     def evaluar(self, pwr_actual):
@@ -492,7 +492,7 @@ def main():
         sdr.gain        = GANANCIA
 
         proc      = ProcesadorNaviWave(SAMPLE_RATE, AUDIO_RATE)
-        squelch   = SquelchAdaptativo(margen_db=8)  # piso_inicial=-30.0 por defecto
+        squelch   = SquelchAdaptativo(margen_db=8)
         grabador  = GrabadorFondo(AUDIO_RATE)
         proc_ais  = ProcesadorAIS(SAMPLE_RATE, AUDIO_RATE)
 
@@ -610,7 +610,8 @@ def main():
                                         "lat": lat,
                                         "lon": lon}
                             
-                            db_gestor.saveBarcos(objBarco)
+                            if len(str(mmsi)) == 9:
+                                db_gestor.saveBarcos(objBarco)
 
                             partes = [f"tipo={mtype}", f"MMSI={mmsi}"]
                             if lat  is not None: partes.append(f"Lat={lat:.4f}")
@@ -621,9 +622,9 @@ def main():
                             print(f"[DECO] {' | '.join(partes)}")
 
                         except Exception as e:
-                            print(f"[ERR ] {type(e).__name__}: {e}")
+                            print(f"[ERR BARCO] {type(e).__name__}: {e}")
 
-                    bloques_voz += 1
+                    #bloques_voz += 1
                     if bloques_voz >= BLOQUES_PARA_CAMBIAR_VOZ:
                         ESTADO_ACTUAL = "VOZ"
                         break
