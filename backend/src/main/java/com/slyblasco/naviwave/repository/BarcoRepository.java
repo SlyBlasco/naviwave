@@ -11,6 +11,6 @@ import java.util.List;
 
 @Repository
 public interface BarcoRepository extends JpaRepository<BarcoModel, Integer> {
-    @Query("SELECT b FROM BarcoModel b WHERE strftime('%Y-%m-%d %H:%M:%S', b.fechaCreacion) > :fechaTexto ORDER BY b.fechaCreacion DESC")
+    @Query("SELECT b FROM BarcoModel b WHERE strftime('%Y-%m-%d %H:%M:%S', b.fechaActualizada) > :fechaTexto ORDER BY b.fechaActualizada DESC")
     List<BarcoModel> findRecientesSQLite(@Param("fechaTexto") String fechaTexto);
 }

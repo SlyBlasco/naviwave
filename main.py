@@ -624,7 +624,7 @@ def main():
                         except Exception as e:
                             print(f"[ERR BARCO] {type(e).__name__}: {e}")
 
-                    #bloques_voz += 1
+                    bloques_voz += 1
                     if bloques_voz >= BLOQUES_PARA_CAMBIAR_VOZ:
                         ESTADO_ACTUAL = "VOZ"
                         break

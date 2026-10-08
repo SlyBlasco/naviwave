@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -26,7 +27,7 @@ public class BarcoController {
 
     @GetMapping("/24hours")
     public List<BarcoModel> obtenerBarcos24Horas() {
-        LocalDateTime hace24horas = LocalDateTime.now().minusHours(24);
+        LocalDateTime hace24horas = LocalDateTime.now(ZoneId.of("America/Hermosillo")).minusHours(24);
 
         DateTimeFormatter formato = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         String fechaTexto = hace24horas.format(formato);

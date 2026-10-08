@@ -1,11 +1,12 @@
 package com.slyblasco.naviwave.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-import java.sql.Date;
+import java.sql.Timestamp;
 
 @Entity
 @Table(name = "audios")
@@ -21,19 +22,21 @@ public class AudioModel {
     private String rutaArchivo;
 
     @Column(name = "fecha_creacion")
-    private Date fechaCreacion;
-    
+    private Timestamp fechaCreacion;
+
     //Constructor vacio
     public AudioModel() {}
-    
+
     //Getter y Setters
     public Integer getId() {return id;}
     public void setId(Integer id) {this.id = id;}
-    
+
     public String getNombre() {return nombre;}
     public void setNombre(String nombre) {this.nombre = nombre;}
-    
+
+    // Se usa dentro del servidor, pero no se envia en el JSON: no hay por que mostrar rutas del disco.
+    @JsonIgnore
     public String getRutaArchivo() {return rutaArchivo;}
 
-    public Date getFechaCreacion() {return fechaCreacion;}
+    public Timestamp getFechaCreacion() {return fechaCreacion;}
 }

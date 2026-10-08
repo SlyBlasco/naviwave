@@ -9,3 +9,6 @@
 /naviwave.db
 
 /__pycache__
+
+/naviwave.db-wal
+/naviwave.db-shm

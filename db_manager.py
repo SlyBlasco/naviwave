@@ -2,11 +2,20 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
+import os
+
+# Ruta de la base de datos. Se define en UN solo lugar: la variable de entorno NAVIWAVE_DB.
+# Si no existe, usa naviwave.db en la carpeta desde donde se ejecuta (la raiz del proyecto).
+DB_PATH = os.environ.get("NAVIWAVE_DB", "naviwave.db")
 
 class GestorBaseDatos:
     def __init__(self):
-        self.connection = sqlite3.connect('naviwave.db')
+        self.connection = sqlite3.connect(DB_PATH)
         try:
+            # WAL: permite que Spring Boot lea mientras Python escribe.
+            # Se guarda en el archivo .db, asi que basta ejecutarlo aqui, donde se crea la base.
+            self.connection.execute("PRAGMA journal_mode=WAL;")
+
             with self.connection:
                 cursor = self.connection.cursor()
 
@@ -43,14 +52,16 @@ class GestorBaseDatos:
         """Guarda el nombre y ruta de cada audio en la tabla audios."""
 
         self.ruta = str(ruta / nombre)
-        self.connection = sqlite3.connect('naviwave.db')
+        # Misma hora local que usa saveBarcos
+        hora_local = datetime.now(ZoneInfo("America/Hermosillo")).strftime("%Y-%m-%d %H:%M:%S")
+        self.connection = sqlite3.connect(DB_PATH)
         try:
             with self.connection:
                 cursor = self.connection.cursor()
 
                 cursor.execute('''
-                    INSERT INTO audios (nombre, ruta_archivo) VALUES (?,?)
-                ''', (nombre, self.ruta))
+                    INSERT INTO audios (nombre, ruta_archivo, fecha_creacion) VALUES (?,?,?)
+                ''', (nombre, self.ruta, hora_local))
 
                 self.connection.commit()
 
@@ -62,7 +73,7 @@ class GestorBaseDatos:
     def listarAudios(self):
         """Devuelve y muestra todos los registros de la tabla audios."""
         try:
-            conn = sqlite3.connect('naviwave.db')
+            conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
             
             cursor.execute('SELECT id, nombre, fecha_creacion FROM audios ORDER BY fecha_creacion DESC')
@@ -97,7 +108,7 @@ class GestorBaseDatos:
             tipo, mmsi, nombre, lat, lon = barco
 
         try:
-            conn = sqlite3.connect('naviwave.db')
+            conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
 
             # Se busca si el barco ya fue registrado antes
@@ -132,7 +143,7 @@ class GestorBaseDatos:
     def listarBarcos(self):
         """Devuelve y muestra todos los registros de la tabla barcos."""
         try:
-            conn = sqlite3.connect('naviwave.db')
+            conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
             
             cursor.execute('SELECT id, mmsi, nombre, lat, lon FROM barcos ORDER BY fecha_creacion DESC')
@@ -151,13 +162,13 @@ class GestorBaseDatos:
         
     def eliminarBarcos(self):
         try:
-            conn = sqlite3.connect('naviwave.db')
+            conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
 
             # Elimina todos los registros
             cursor.execute('DELETE FROM barcos;')
             
-            # Reinicia el contador de autoincremento (opcional)
+            # Reinicia el contador de autoincremento
             cursor.execute("DELETE FROM sqlite_sequence WHERE name='barcos';")
 
             conn.commit()
@@ -165,4 +176,3 @@ class GestorBaseDatos:
             conn.close()
         except sqlite3.Error as e:
             print(f"[SQL ERROR] {e}")
-        
