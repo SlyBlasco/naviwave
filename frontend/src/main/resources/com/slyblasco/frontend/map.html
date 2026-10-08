@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script>window.L_DISABLE_3D = true; // el WebView de JavaFX dibuja mal los tiles con transformaciones 3D</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body, #mapa { height: 100%; margin: 0; }
+</style>
+</head>
+<body>
+<div id="mapa"></div>
+<script>
+  // Centro inicial aproximado (zona de Guaymas); se ajusta solo al llegar los barcos.
+  var mapa = L.map('mapa').setView([27.92, -110.90], 11);
+  var tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(mapa);
+  tiles.on('tileerror', function (e) { reportar('tileerror: ' + e.tile.src); });
+
+  // Mensajes del mapa hacia la consola de Java (el WebView no muestra su propia consola).
+  function reportar(texto) {
+    if (window.javaBridge) window.javaBridge.log(String(texto));
+  }
+
+  // Leaflet calcula el tamano del contenedor al crearse; soi el WebView aun n tenia su tamano final,
+  // el calculo queda mal y se ven zonas grises. invalidateSize() lo recalcula.
+  function ajustarTamano() {
+    mapa.invalidateSize();
+  }
+  setTimeout(function () {
+    ajustarTamano();
+    reportar('tamano del mapa: ' + mapa.getSize().x + 'x' + mapa.getSize().y);
+  }, 500);
+
+  var capa = L.layerGroup().addTo(mapa);
+  var marcadores = {};      // mmsi -> marcador
+  var seleccionado = null;  // mmsi del barco seleccionado
+  var primeraVez = true;
+
+  // Iconito de barco en SVG (no depende de emojis ni de archivos externos)
+  function iconoBarco(sel) {
+    var color = sel ? '#e53935' : '#1565c0';
+    var tam = sel ? 34 : 24;
+    var svg = '<svg width="' + tam + '" height="' + tam + '" viewBox="0 0 24 24">' +
+              '<path d="M3 15l2 5h14l2-5H3z" fill="' + color + '"/>' +
+              '<path d="M11 3v10H5l6-10z" fill="' + color + '"/>' +
+              '<path d="M13 6v7h6l-6-7z" fill="' + color + '" fill-opacity="0.55"/></svg>';
+    return L.divIcon({ className: '', html: svg, iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2] });
+  }
+
+  // Java llama a esta funcion con el JSON (texto) de los barcos.
+  function setBarcos(jsonTexto) {
+    var lista = JSON.parse(jsonTexto);
+    capa.clearLayers();
+    marcadores = {};
+    var puntos = [];
+    lista.forEach(function (b) {
+      // Se omiten posiciones vacias o fuera de rango (AIS usa 91 / 181 como "no disponible")
+      if (b.lat == null || b.lon == null || Math.abs(b.lat) > 90 || Math.abs(b.lon) > 180) return;
+      var m = L.marker([b.lat, b.lon], { icon: iconoBarco(b.mmsi === seleccionado) });
+      // El nombre llega por radio: se muestra como TEXTO, nunca como HTML.
+      var tip = document.createElement('span');
+      tip.textContent = b.nombre || ('MMSI ' + b.mmsi);
+      m.bindTooltip(tip);
+      m.on('click', function () { seleccionar(b.mmsi, true); });
+      m.addTo(capa);
+      marcadores[b.mmsi] = m;
+      puntos.push([b.lat, b.lon]);
+    });
+    if (primeraVez && puntos.length > 0) {
+      mapa.fitBounds(puntos, { padding: [40, 40], maxZoom: 13 });
+      primeraVez = false;
+    }
+  }
+
+  // desdeMapa = true  -> el click fue en el mapa: se avisa a Java para que marque el bloque.
+  // desdeMapa = false -> lo pidio Java (click en la lista): se centra el mapa en el barco.
+  function seleccionar(mmsi, desdeMapa) {
+    if (seleccionado !== null && marcadores[seleccionado]) {
+      marcadores[seleccionado].setIcon(iconoBarco(false));
+      marcadores[seleccionado].setZIndexOffset(0);
+    }
+    seleccionado = mmsi;
+    var m = marcadores[mmsi];
+    if (m) {
+      m.setIcon(iconoBarco(true));
+      m.setZIndexOffset(1000);
+      if (!desdeMapa) mapa.setView(m.getLatLng(), Math.max(mapa.getZoom(), 13));
+    }
+    if (desdeMapa && window.javaBridge) window.javaBridge.barcoSeleccionado(mmsi);
+  }
+</script>
+</body>
+</html>

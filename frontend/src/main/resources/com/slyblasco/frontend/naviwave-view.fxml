@@ -13,26 +13,26 @@
                     <content>
                         <HBox>
                             <children>
-                                <AnchorPane fx:id="pane_lista_barco" minWidth="200.0" prefWidth="200.0" style="-fx-background-color: lightgray;">
+                                <AnchorPane fx:id="pane_lista_barco" minWidth="260.0" prefWidth="280.0" style="-fx-background-color: lightgray;">
                                     <HBox.margin>
                                         <Insets right="10.0" />
                                     </HBox.margin>
                            <children>
-                              <SplitPane dividerPositions="0.35" layoutX="20.0" layoutY="21.0" orientation="VERTICAL" prefHeight="649.0" prefWidth="160.0" AnchorPane.bottomAnchor="21.0" AnchorPane.leftAnchor="20.0" AnchorPane.rightAnchor="20.0" AnchorPane.topAnchor="21.0">
-                                <items>
-                                  <ScrollPane minHeight="0.0" minWidth="0.0" prefHeight="100.0" prefWidth="160.0">
+                              <ScrollPane fx:id="scrollLista" fitToWidth="true" hbarPolicy="NEVER" AnchorPane.bottomAnchor="21.0" AnchorPane.leftAnchor="10.0" AnchorPane.rightAnchor="10.0" AnchorPane.topAnchor="21.0">
                                        <content>
-                                          <VBox prefHeight="224.0" prefWidth="144.0" />
-                                       </content></ScrollPane>
-                                  <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="100.0" prefWidth="158.0" />
-                                </items>
-                              </SplitPane>
+                                          <VBox fx:id="listaBarcos" spacing="8.0">
+                                             <padding>
+                                                <Insets bottom="8.0" left="8.0" right="8.0" top="8.0" />
+                                             </padding>
+                                          </VBox>
+                                       </content>
+                              </ScrollPane>
                            </children>
                                 </AnchorPane>
 
                                 <AnchorPane fx:id="pane_map" style="-fx-background-color: blue;" HBox.hgrow="ALWAYS">
                            <children>
-                              <WebView prefHeight="598.0" prefWidth="897.0" AnchorPane.bottomAnchor="21.0" AnchorPane.leftAnchor="20.0" AnchorPane.rightAnchor="20.0" AnchorPane.topAnchor="21.0" />
+                              <WebView fx:id="webMapa" prefHeight="598.0" prefWidth="897.0" AnchorPane.bottomAnchor="21.0" AnchorPane.leftAnchor="20.0" AnchorPane.rightAnchor="20.0" AnchorPane.topAnchor="21.0" />
                            </children></AnchorPane>
                             </children>
                         </HBox>
@@ -40,18 +40,48 @@
                 </Tab>
                 <Tab fx:id="tab_grabaciones" text="Grabaciones Comunicaciones">
                     <content>
-                        <AnchorPane>
-                            <children>
-                                <AnchorPane style="-fx-background-color: red;" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
-                                    <children>
-                                        <Label layoutX="236.0" layoutY="170.0" text="panel 2" />
-                                    </children>
+                        <BorderPane>
+                            <padding>
+                                <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+                            </padding>
+                            <top>
+                                <HBox alignment="CENTER_LEFT" spacing="12.0">
                                     <padding>
-                                        <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+                                        <Insets bottom="10.0" />
                                     </padding>
-                                </AnchorPane>
-                            </children>
-                        </AnchorPane>
+                                    <children>
+                                        <Label style="-fx-font-weight: bold;" text="Grabaciones de comunicaciones de voz (doble click para reproducir)" />
+                                        <Button onAction="#actualizarAudios" text="Actualizar" />
+                                    </children>
+                                </HBox>
+                            </top>
+                            <center>
+                                <TableView fx:id="tablaAudios">
+                                    <columns>
+                                        <TableColumn fx:id="colFecha" prefWidth="170.0" text="Fecha" />
+                                        <TableColumn fx:id="colNombre" prefWidth="500.0" text="Archivo" />
+                                    </columns>
+                                </TableView>
+                            </center>
+                            <bottom>
+                                <VBox spacing="8.0">
+                                    <padding>
+                                        <Insets top="12.0" />
+                                    </padding>
+                                    <children>
+                                        <Label fx:id="lblAudioActual" text="Selecciona una grabacion" />
+                                        <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                            <children>
+                                                <Button fx:id="btnPlayPausa" minWidth="90.0" onAction="#alternarReproduccion" text="Reproducir" />
+                                                <Button onAction="#detenerReproduccion" text="Detener" />
+                                                <Slider fx:id="sliderProgreso" disable="true" HBox.hgrow="ALWAYS" />
+                                                <Label fx:id="lblTiempo" text="--:-- / --:--" />
+                                            </children>
+                                        </HBox>
+                                    </children>
+                                </VBox>
+                            </bottom>
+                        </BorderPane>
                     </content>
                 </Tab>
             </tabs>

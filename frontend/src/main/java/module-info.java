@@ -2,6 +2,8 @@ module com.slyblasco.frontend {
     requires javafx.controls;
     requires javafx.fxml;
     requires javafx.web;
+    requires javafx.media;
+    requires jdk.jsobject;
 
     requires org.controlsfx.controls;
     requires org.kordamp.bootstrapfx.core;
