@@ -33,6 +33,12 @@ SAMPLE_RATE         = 256_000
 GANANCIA            = 12
 AUDIO_RATE          = 48_000
 
+# --- REPARTO DE TIEMPO ENTRE VOZ Y AIS (un solo receptor: se turnan) ---
+BLOQUE_MUESTRAS            = 16384                          # muestras que se leen en cada vuelta
+SEGUNDOS_POR_BLOQUE        = BLOQUE_MUESTRAS / SAMPLE_RATE  # 0.064 s
+SEGUNDOS_SILENCIO_PARA_AIS = 11.2   # sin senal en voz durante este tiempo -> salta a escuchar barcos
+SEGUNDOS_EN_AIS            = 3.2    # tiempo escuchando barcos antes de volver a voz
+
 # PARAMETROS TCP
 RTL_TCP_HOST        = '192.168.1.72'
 RTL_TCP_PORT        = 1234
@@ -500,13 +506,13 @@ def main():
         bloques_silencio     = 0
         BLOQUES_PARA_CORTAR  = 20
         bloques_silencio_total    = 0
-        BLOQUES_PARA_CAMBIAR_AIS  = 175
+        BLOQUES_PARA_CAMBIAR_AIS  = round(SEGUNDOS_SILENCIO_PARA_AIS / SEGUNDOS_POR_BLOQUE)
 
         bloques_arranque  = 0
         BLOQUES_ARRANQUE  = 20
 
         bloques_voz              = 0
-        BLOQUES_PARA_CAMBIAR_VOZ = 50
+        BLOQUES_PARA_CAMBIAR_VOZ = round(SEGUNDOS_EN_AIS / SEGUNDOS_POR_BLOQUE)
 
         ESTADO_ACTUAL = "VOZ"
 
@@ -636,6 +642,7 @@ def main():
                 bloques_silencio_total = 0
                 sdr.center_freq        = FRECUENCIA_CENTRAL
                 sdr.gain               = GANANCIA
+                print("\n[🔁 CAMBIO] Frecuencia de voz activa")
 
     except KeyboardInterrupt:
         print("\n\n[INFO] Detenido por el usuario.")
