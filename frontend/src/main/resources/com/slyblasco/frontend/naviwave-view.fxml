@@ -40,7 +40,31 @@
                 </Tab>
                 <Tab fx:id="tab_grabaciones" text="Grabaciones Comunicaciones">
                     <content>
-                        <BorderPane>
+                        <SplitPane dividerPositions="0.3" orientation="VERTICAL">
+                            <items>
+                                <VBox minHeight="120.0" spacing="10.0">
+                                    <padding>
+                                        <Insets bottom="14.0" left="20.0" right="20.0" top="14.0" />
+                                    </padding>
+                                    <children>
+                                        <Label style="-fx-font-weight: bold;" text="Escucha en vivo" />
+                                        <HBox alignment="CENTER_LEFT" spacing="12.0">
+                                            <children>
+                                                <Button fx:id="btnEscuchar" minWidth="150.0" onAction="#alternarEscuchaEnVivo" text="Escuchar en vivo" />
+                                                <Label fx:id="lblEstadoVivo" text="Desconectado" />
+                                            </children>
+                                        </HBox>
+                                        <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                            <children>
+                                                <Label text="Nivel" />
+                                                <ProgressBar fx:id="barraNivel" prefWidth="260.0" progress="0.0" />
+                                                <Label text="Volumen" />
+                                                <Slider fx:id="sliderVolumen" max="1.0" min="0.0" prefWidth="160.0" value="0.8" />
+                                            </children>
+                                        </HBox>
+                                    </children>
+                                </VBox>
+                                <BorderPane>
                             <padding>
                                 <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
                             </padding>
@@ -82,6 +106,8 @@
                                 </VBox>
                             </bottom>
                         </BorderPane>
+                            </items>
+                        </SplitPane>
                     </content>
                 </Tab>
             </tabs>

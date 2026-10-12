@@ -3,7 +3,8 @@ module com.slyblasco.frontend {
     requires javafx.fxml;
     requires javafx.web;
     requires javafx.media;
-    requires jdk.jsobject;
+    requires jdk.jsobject;   // netscape.javascript.JSObject: puente Java <-> JavaScript del WebView
+    requires java.desktop;   // javax.sound.sampled: reproducir el audio en vivo
 
     requires org.controlsfx.controls;
     requires org.kordamp.bootstrapfx.core;

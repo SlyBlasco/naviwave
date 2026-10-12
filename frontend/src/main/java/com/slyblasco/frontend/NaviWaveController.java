@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.slyblasco.frontend.api.ApiCalls;
+import com.slyblasco.frontend.audiovivo.AudioVivoCliente;
 import com.slyblasco.frontend.models.AudioModel;
 import com.slyblasco.frontend.models.BarcoModel;
 import javafx.animation.Animation;
@@ -16,6 +17,7 @@ import javafx.concurrent.Worker;
 import javafx.fxml.FXML;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.Tab;
@@ -31,6 +33,7 @@ import javafx.util.Duration;
 import netscape.javascript.JSObject;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Timestamp;
@@ -49,10 +52,10 @@ public class NaviWaveController {
 
     private static final String ESTILO_BLOQUE =
             "-fx-background-color: white; -fx-border-color: #b0b0b0; -fx-border-radius: 4; "
-                    + "-fx-background-radius: 4; -fx-padding: 8; -fx-cursor: hand;";
+            + "-fx-background-radius: 4; -fx-padding: 8; -fx-cursor: hand;";
     private static final String ESTILO_BLOQUE_SELECCIONADO =
             "-fx-background-color: #ffe9e9; -fx-border-color: #e53935; -fx-border-width: 2; "
-                    + "-fx-border-radius: 4; -fx-background-radius: 4; -fx-padding: 7; -fx-cursor: hand;";
+            + "-fx-border-radius: 4; -fx-background-radius: 4; -fx-padding: 7; -fx-cursor: hand;";
 
     private final ApiCalls api = new ApiCalls();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -81,6 +84,14 @@ public class NaviWaveController {
     @FXML private Button btnPlayPausa;
     @FXML private Slider sliderProgreso;
 
+    // ---- Escucha en vivo ----
+    @FXML private Button btnEscuchar;
+    @FXML private Label lblEstadoVivo;
+    @FXML private ProgressBar barraNivel;
+    @FXML private Slider sliderVolumen;
+
+    private AudioVivoCliente audioVivo;
+
     private MediaPlayer reproductor;
     private Integer idCargado = null;
     private boolean arrastrandoSlider = false;
@@ -94,6 +105,7 @@ public class NaviWaveController {
         configurarMapa();
         cargarBarcos();
         configurarGrabaciones();
+        configurarAudioVivo();
 
         Timeline refresco = new Timeline(new KeyFrame(Duration.seconds(REFRESCO_SEGUNDOS), e -> cargarBarcos()));
         refresco.setCycleCount(Animation.INDEFINITE);
@@ -390,7 +402,6 @@ public class NaviWaveController {
         };
         tarea.setOnSucceeded(e -> {
             if (solicitud != contadorSolicitudes) return;
-
             Path archivo = tarea.getValue();
             if (archivo == null) {
                 lblAudioActual.setText("No se pudo obtener el audio (revisa que el backend este corriendo)");
@@ -400,7 +411,6 @@ public class NaviWaveController {
         });
         tarea.setOnFailed(e -> {
             if (solicitud != contadorSolicitudes) return;
-
             lblAudioActual.setText("Error al descargar el audio");
             System.err.println("Error al descargar el audio: " + tarea.getException());
         });
@@ -491,5 +501,45 @@ public class NaviWaveController {
         Thread hilo = new Thread(tarea, nombre);
         hilo.setDaemon(true);
         hilo.start();
+    }
+
+    // ================= Escucha en vivo =================
+
+    private void configurarAudioVivo() {
+        // El cliente avisa desde hilos de fondo; todo lo que toque la pantalla pasa por Platform.runLater.
+        audioVivo = new AudioVivoCliente(
+                URI.create(AudioVivoCliente.URL_POR_DEFECTO),
+                estado -> Platform.runLater(() -> mostrarEstadoVivo(estado)),
+                nivel -> Platform.runLater(() -> barraNivel.setProgress(Math.min(1.0, nivel * 4))),
+                mensaje -> Platform.runLater(() -> lblEstadoVivo.setText(mensaje)));
+
+        audioVivo.setVolumen(sliderVolumen.getValue());
+        sliderVolumen.valueProperty().addListener((obs, anterior, nuevo) -> audioVivo.setVolumen(nuevo.doubleValue()));
+    }
+
+    @FXML
+    private void alternarEscuchaEnVivo() {
+        if (audioVivo.isActivo()) {
+            audioVivo.desconectar();
+        } else {
+            audioVivo.conectar();
+        }
+    }
+
+    private void mostrarEstadoVivo(AudioVivoCliente.Estado estado) {
+        switch (estado) {
+            case CONECTANDO -> lblEstadoVivo.setText("Conectando...");
+            case ESPERANDO_AUDIO -> lblEstadoVivo.setText("Conectado. Esperando audio...");
+            case ESCUCHANDO -> lblEstadoVivo.setText("Escuchando");
+            case DESCONECTADO -> lblEstadoVivo.setText("Desconectado");
+            case ERROR -> { /* el mensaje del error ya se mostro */ }
+        }
+        boolean activo = estado == AudioVivoCliente.Estado.CONECTANDO
+                || estado == AudioVivoCliente.Estado.ESPERANDO_AUDIO
+                || estado == AudioVivoCliente.Estado.ESCUCHANDO;
+        btnEscuchar.setText(activo ? "Dejar de escuchar" : "Escuchar en vivo");
+        if (!activo) {
+            barraNivel.setProgress(0);
+        }
     }
 }
