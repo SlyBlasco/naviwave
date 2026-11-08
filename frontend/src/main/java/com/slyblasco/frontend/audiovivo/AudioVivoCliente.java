@@ -30,8 +30,6 @@ import java.util.function.Supplier;
  */
 public class AudioVivoCliente {
 
-    public static final String URL_POR_DEFECTO = "ws://localhost:8080/ws/audio-vivo/oyente";
-
     public enum Estado { CONECTANDO, ESPERANDO_AUDIO, ESCUCHANDO, DESCONECTADO, ERROR }
 
     /** La "bocina". Es una interfaz para poder separar la red del sonido (y probar cada una por su lado). */
