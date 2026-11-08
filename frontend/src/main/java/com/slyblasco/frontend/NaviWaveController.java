@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.slyblasco.frontend.api.ApiCalls;
+import com.slyblasco.frontend.api.ConfiguracionServidor;
 import com.slyblasco.frontend.audiovivo.AudioVivoCliente;
 import com.slyblasco.frontend.models.AudioModel;
 import com.slyblasco.frontend.models.BarcoModel;
@@ -46,7 +47,7 @@ import java.util.Map;
 public class NaviWaveController {
 
     // true = solo barcos vistos en las ultimas 24 h; false = todos (util para probar con datos viejos)
-    private static final boolean SOLO_ULTIMAS_24H = true;
+    private static final boolean SOLO_ULTIMAS_24H = false;
     private static final int REFRESCO_SEGUNDOS = 10;
     private static final DateTimeFormatter FORMATO_FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
@@ -508,7 +509,7 @@ public class NaviWaveController {
     private void configurarAudioVivo() {
         // El cliente avisa desde hilos de fondo; todo lo que toque la pantalla pasa por Platform.runLater.
         audioVivo = new AudioVivoCliente(
-                URI.create(AudioVivoCliente.URL_POR_DEFECTO),
+                URI.create(ConfiguracionServidor.wsBase() + "/ws/audio-vivo/oyente"),
                 estado -> Platform.runLater(() -> mostrarEstadoVivo(estado)),
                 nivel -> Platform.runLater(() -> barraNivel.setProgress(Math.min(1.0, nivel * 4))),
                 mensaje -> Platform.runLater(() -> lblEstadoVivo.setText(mensaje)));

@@ -7,7 +7,6 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
-
 /** Registra las dos direcciones WebSocket del audio en vivo. */
 @Configuration
 @EnableWebSocket
@@ -23,7 +22,9 @@ public class AudioVivoConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registro) {
-        registro.addHandler(emisorHandler, "/ws/audio-vivo/emisor");
+        // El emisor (main.py) solo puede conectarse desde esta misma computadora
+        registro.addHandler(emisorHandler, "/ws/audio-vivo/emisor")
+                .addInterceptors(new SoloConexionesLocales());
         registro.addHandler(oyenteHandler, "/ws/audio-vivo/oyente");
     }
 

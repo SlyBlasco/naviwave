@@ -7,19 +7,19 @@ public class ApiCalls {
     HttpSync api = new HttpSync();
 
     public String getJSONBarcos24Horas(){
-        return api.apiRequest("http://localhost:8080/api/barcos/24hours");
+        return api.apiRequest(ConfiguracionServidor.httpBase() + "/api/barcos/24hours");
     }
 
     public String getJSONTodosBarcos(){
-        return api.apiRequest("http://localhost:8080/api/barcos");
+        return api.apiRequest(ConfiguracionServidor.httpBase() + "/api/barcos");
     }
 
     public String getJSONAudios(){
-        return api.apiRequest("http://localhost:8080/api/audios");
+        return api.apiRequest(ConfiguracionServidor.httpBase() + "/api/audios");
     }
 
     /** Descarga el .wav de la grabacion con ese id a "destino". Devuelve true si salio bien. */
     public boolean descargarAudio(int id, Path destino){
-        return api.apiDownload("http://localhost:8080/api/audios/" + id + "/archivo", destino);
+        return api.apiDownload(ConfiguracionServidor.httpBase() + "/api/audios/" + id + "/archivo", destino);
     }
 }
